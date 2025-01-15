@@ -1,3 +1,4 @@
+using ComponentBind;
 using UnityEngine;
 using UnityEngine.UI;
 
