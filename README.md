@@ -1,3 +1,4 @@
+
 # ComponentAutoBindTool
 0202年了作为底层拼图仔的你还在Unity里手写组件绑定代码？快来试试这款船新的组件自动绑定工具吧，只需三分钟，你就会爱上它。
 
@@ -10,3 +11,12 @@
 AutoBindGlobalSetting.asset为默认设置文件，可放置于Asset目录下任意位置，若不慎丢失可通过点击菜单栏的CatWorkflow/CreateAutoBindGlobalSetting进行创建。
 
 本项目基于 https://github.com/egametang/ET 中的 ReferenceCollector 开发。
+
+---
+
+## 主要变化
+
+1. 按自己项目的命名规范更新了代码。
+2. 新增 `AutoBindBehaviour` 以及 `IAutoBindPage` 以支持在 Inspector 上显示绑定的脚本引用。
+3. 新增 `AutoBindableAttribute` 以支持在自定义组件上标记添加到组件绑定映射表。
+4. 支持 Unity Package Manager 安装。

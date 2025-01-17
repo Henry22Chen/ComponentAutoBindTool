@@ -12,5 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 089caf30d869f954eb91eb065677f71c, type: 3}
   m_Name: AutoBindGlobalSetting
   m_EditorClassIdentifier: 
-  m_CodePath: D:/UnityProjects/ComponentAutoBindTool/Assets/Example/Scripts
-  m_Namespace: 
+  codePath: 
+  rootNamespace: 
+  ruleHelperName: ComponentBind.DefaultAutoBindRuleHelper
+  searchAssemblies: []
