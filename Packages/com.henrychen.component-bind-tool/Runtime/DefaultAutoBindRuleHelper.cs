@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace ComponentBind
 {
@@ -13,6 +14,7 @@ namespace ComponentBind
     public class DefaultAutoBindRuleHelper : IAutoBindRuleHelper
     {
         public virtual Dictionary<Type, string> CustomTypeMap => _customTypeMap;
+        public char ValidSymbol => '@';
 
         private readonly Dictionary<Type, string> _customTypeMap = new();
         private Dictionary<string, string> _fieldName2TypeMap = new();
@@ -124,11 +126,16 @@ namespace ComponentBind
             _isInitialized = true;
         }
 
-        public virtual bool IsValidBind(Transform target, List<string> fieldNames, List<string> componentTypeNames)
+        public bool IsValidBind(Transform target, ref List<AutoBindField> fields)
         {
+            if (string.IsNullOrEmpty(target.name) || target.name[0] != ValidSymbol)
+                return false;
+            
+            fields ??= new List<AutoBindField>();
+            
             var typeDict = _fieldName2TypeMap;
 
-            var strArray = target.name.Split('_');
+            var strArray = target.name[1..].Split('_');
 
             if (strArray.Length == 1)
             {
@@ -136,47 +143,95 @@ namespace ComponentBind
             }
 
             var fieldName = strArray[^1].Trim();
-
+            var tempResultDict = new Dictionary<string, AutoBindField>();
             for (var i = 0; i < strArray.Length - 1; i++)
             {
-                var str = strArray[i];
+                var typePrefix = strArray[i];
 
-                var genericTypes = str.Split('`');
-                const string genericFieldName = "@List";
+                var genericTypes = typePrefix.Split('`');
+                const string genericFieldName = "List";
                 if (genericTypes.Length == 2 &&
                     string.Equals(genericTypes[0], genericFieldName, StringComparison.OrdinalIgnoreCase))
                 {
                     if (typeDict.TryGetValue(genericTypes[1], out var genericArgs))
                     {
-                        fieldNames.Add(
-                            $"{genericTypes[1].StartWithLower()}{fieldName.StartWithUpper()}{genericFieldName}");
-
-                        componentTypeNames.Add(genericArgs);
+                        var name = $"{genericTypes[1].StartWithLower()}{fieldName.StartWithUpper()}{genericFieldName}";
+                        var field = new AutoBindField(name, true, genericArgs);
+                        tempResultDict[genericArgs] = field;
                     }
                     else
                     {
-                        Debug.LogError($"{target.name} 的命名中 {str} 不存在对应的组件类型，绑定失败");
+                        Debug.LogError($"{target.name} 的命名中 {typePrefix} 不存在对应的组件类型，绑定失败");
                         return false;
                     }
 
                     continue;
                 }
 
-                if (typeDict.TryGetValue(str, out var comName))
+                if (typeDict.TryGetValue(typePrefix, out var comName))
                 {
-                    if (componentTypeNames.Contains(comName)) continue;
+                    if (tempResultDict.ContainsKey(comName)) continue;
 
-                    fieldNames.Add($"{str.StartWithLower()}{fieldName.StartWithUpper()}");
-                    componentTypeNames.Add(comName);
+                    var name = $"{typePrefix.StartWithLower()}{fieldName.StartWithUpper()}";
+                    var field = new AutoBindField(name, false, comName);
+                    tempResultDict[comName] = field;
                 }
                 else
                 {
-                    Debug.LogError($"{target.name}的命名中{str}不存在对应的组件类型，绑定失败");
+                    Debug.LogError($"{target.name}的命名中{typePrefix}不存在对应的组件类型，绑定失败");
                     return false;
                 }
             }
+
+            foreach (var (typeName, field) in tempResultDict)
+            {
+                var multiTypes = typeName.Split('\n');
+                field.PossibleTypes.AddRange(multiTypes);
+                fields.Add(field);
+            }
             
             return true;
+        }
+
+        public void FindListElements(Transform target, AutoBindField field, ref List<Object> elements)
+        {
+            elements ??= new List<Object>();
+            var componentTypeName = field.ComponentType;
+            var possibleTypes = field.PossibleTypes;
+            var validType = "";
+            for (var i = 0; i < target.childCount; i++)
+            {
+                var errorCount = 0;
+                foreach (var typeName in possibleTypes)
+                {
+                    if (typeName.Equals("GameObject"))
+                    {
+                        elements.Add(target.GetChild(i).gameObject);
+                        break;
+                    }
+                    
+                    
+                    var com = target.GetChild(i).GetComponent(typeName);
+                    if (com == null)
+                    {
+                        errorCount++;
+                        if (errorCount == possibleTypes.Count)
+                            Debug.LogError($"{target.name} 子节点中不存在 {componentTypeName} 类型的组件");
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrEmpty(validType) && validType != typeName)
+                        {
+                            Debug.LogError($"{target.name} 子节点中存在多个类型的组件 {validType} 和 {typeName}");
+                            continue;
+                        }
+                        
+                        validType = typeName;
+                        elements.Add(com);
+                        break;
+                    }
+                }
+            }
         }
     }
 }

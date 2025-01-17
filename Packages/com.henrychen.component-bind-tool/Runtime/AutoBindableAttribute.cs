@@ -2,6 +2,9 @@
 
 namespace ComponentBind
 {
+    /// <summary>
+    /// 自定义组件的绑定前缀
+    /// </summary>
     [AttributeUsage(AttributeTargets.Class)]
     public class AutoBindableAttribute : Attribute
     {

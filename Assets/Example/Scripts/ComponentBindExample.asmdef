@@ -1,9 +1,8 @@
 {
-    "name": "ComponentBind",
-    "rootNamespace": "ComponentBind",
+    "name": "ComponentBindExample",
+    "rootNamespace": "ComponentBindExample",
     "references": [
-        "Unity.TextMeshPro",
-        "com.upscalebaby.generic-serializable-dictionary"
+        "GUID:a80afacec315a8649afd1c26a6ea4971"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -18,10 +18,10 @@ namespace ComponentBind.Editor
         private ComponentAutoBindTool _target;
 
         private SerializedProperty _bindData;
-        private SerializedProperty _bindComponents;
+        private SerializedProperty _bindMap;
         private readonly List<BindData> _tempList = new();
-        private readonly List<string> _tempFieldNames = new();
-        private readonly List<string> _tempComponentTypeNames = new();
+        private List<AutoBindField> _fields = new();
+        private List<Object> _listElements = new();
 
         private IEnumerable<string> _searchAssemblies;
         private string[] _helperTypeNames;
@@ -40,7 +40,7 @@ namespace ComponentBind.Editor
         {
             _target = (ComponentAutoBindTool)target;
             _bindData = serializedObject.FindProperty("bindData");
-            _bindComponents = serializedObject.FindProperty("bindComponents");
+            _bindMap = serializedObject.FindProperty("bindMap");
 
             var paths = AssetDatabase.FindAssets("t:AutoBindGlobalSetting");
             if (paths.Length == 0)
@@ -112,6 +112,8 @@ namespace ComponentBind.Editor
 
             DrawScriptField();
 
+            DrawSettingReference();
+            
             DrawTopButton();
 
             DrawHelperSelect();
@@ -172,7 +174,7 @@ namespace ComponentBind.Editor
             var className = _className.stringValue;
             foreach (var type in _pageTypes)
             {
-                if (type.Namespace != namespaceName) continue;
+                if (!string.IsNullOrEmpty(namespaceName) && type.Namespace != namespaceName) continue;
 
                 if (type.Name == className)
                 {
@@ -242,13 +244,9 @@ namespace ComponentBind.Editor
 
             _tempList.Sort((x, y) => { return string.Compare(x.name, y.name, StringComparison.Ordinal); });
 
-            _bindData.ClearArray();
-            foreach (BindData data in _tempList)
-            {
-                AddBindData(data.name, data.bindCom, data.path, data.isList);
-            }
+            SerializeBindData(_tempList);
 
-            SyncBindComs();
+            SerializeBindMap();
         }
 
         /// <summary>
@@ -258,7 +256,7 @@ namespace ComponentBind.Editor
         {
             _bindData.ClearArray();
 
-            SyncBindComs();
+            SerializeBindMap();
         }
 
         /// <summary>
@@ -268,14 +266,14 @@ namespace ComponentBind.Editor
         {
             for (int i = _bindData.arraySize - 1; i >= 0; i--)
             {
-                SerializedProperty element = _bindData.GetArrayElementAtIndex(i).FindPropertyRelative("BindCom");
+                SerializedProperty element = _bindData.GetArrayElementAtIndex(i).FindPropertyRelative("bindCom");
                 if (element.objectReferenceValue == null)
                 {
                     _bindData.DeleteArrayElementAtIndex(i);
                 }
             }
 
-            SyncBindComs();
+            SerializeBindMap();
         }
 
         /// <summary>
@@ -283,85 +281,117 @@ namespace ComponentBind.Editor
         /// </summary>
         private void AutoBindComponent()
         {
-            _bindData.ClearArray();
-
+            Dictionary<string, BindData> tempFieldBinds = new();
+            var errorString = "";
             Transform[] children = _target.gameObject.GetComponentsInChildren<Transform>(true);
-            foreach (Transform child in children)
+            foreach (var child in children)
             {
-                var autoBind =
-                    child.GetComponentInParent<ComponentAutoBindTool>(true);
+                var autoBind = child.GetComponentInParent<ComponentAutoBindTool>(true);
+                // 对于嵌套的 ComponentAutoBindTool，不绑定其子物体
                 if (autoBind != _target && autoBind.transform != child) continue;
                 if (autoBind == _target && autoBind.transform == child) continue;
 
-                _tempFieldNames.Clear();
-                _tempComponentTypeNames.Clear();
-
-                if (_target.RuleHelper.IsValidBind(child, _tempFieldNames, _tempComponentTypeNames))
+                _fields.Clear();
+                if (!_target.RuleHelper.IsValidBind(child, ref _fields)) continue;
+                foreach (var field in _fields)
                 {
-                    for (int i = 0; i < _tempFieldNames.Count; i++)
-                    {
-                        var componentList = _tempComponentTypeNames[i].Split('\n');
-                        var componentTypeName = _tempComponentTypeNames[i];
-                        var fieldName = _tempFieldNames[i];
+                    var componentTypeName = field.ComponentType;
+                    var possibleTypes = field.PossibleTypes;
+                    var fieldName = field.Name;
 
-                        if (fieldName.EndsWith("@List"))
+                    if (field.IsList)
+                    {
+                        _listElements.Clear();
+                        _target.RuleHelper.FindListElements(child, field, ref _listElements);
+                        if (_listElements.Count > 0)
                         {
-                            fieldName = fieldName.Replace("@", "");
-                            for (int j = 0; j < child.childCount; j++)
+                            var hierarchyPath = child.transform.GetHierarchyPath(_target.transform);
+                            if (tempFieldBinds.ContainsKey(fieldName))
                             {
-                                var errorCount = 0;
-                                foreach (var compTypeName in componentList)
+                                errorString += $"{child.name} 存在重复的字段名 {fieldName}: [{hierarchyPath}]\n";
+                                continue;
+                            }
+                            else
+                            {
+                                var bindData = new BindData(fieldName, null, true, hierarchyPath)
                                 {
-                                    Component com = child.GetChild(j).GetComponent(compTypeName);
-                                    if (com == null)
-                                    {
-                                        errorCount++;
-                                        if (errorCount == componentList.Length)
-                                            Debug.LogError($"{child.name}上不存在{componentTypeName}的组件");
-                                    }
-                                    else
-                                    {
-                                        var hierarchyPath = $"{com.transform.GetHierarchyPath(_target.transform)}";
-                                        AddBindData($"{fieldName}", com, hierarchyPath, true);
-                                    }
-                                }
+                                    listElements = new Object[_listElements.Count]
+                                };
+                                tempFieldBinds.Add(fieldName, bindData);
                             }
                         }
-                        else
+
+                        for (var i = 0; i < _listElements.Count; i++)
                         {
-                            var errorCount = 0;
-                            foreach (var compTypeName in componentList)
+                            var element = _listElements[i];
+                            tempFieldBinds[fieldName].listElements[i] = element;
+                            // var hierarchyPath = element.transform.GetHierarchyPath(_target.transform);
+                            // AddBindData($"{fieldName}", element, hierarchyPath, true);
+                        }
+                    }
+                    else
+                    {
+                        var errorCount = 0;
+                        foreach (var typeName in possibleTypes)
+                        {
+                            if (typeName.Equals("GameObject"))
                             {
-                                if (compTypeName.Equals("GameObject"))
+                                var hierarchyPath = child.transform.GetHierarchyPath(_target.transform);
+                                if (tempFieldBinds.ContainsKey(fieldName))
                                 {
-                                    var hierarchyPath = $"{child.transform.GetHierarchyPath(_target.transform)}";
-                                    AddBindData(fieldName, child.gameObject, hierarchyPath);
+                                    errorString += $"{child.name} 存在重复的字段名 {fieldName}: [{hierarchyPath}]\n";
                                 }
                                 else
                                 {
-                                    Component com = child.GetComponent(compTypeName);
-                                    if (com == null)
-                                    {
-                                        errorCount++;
-                                        if (errorCount == componentList.Length)
-                                            Debug.LogError($"{child.name}上不存在{componentTypeName}的组件");
-                                    }
-                                    else
-                                    {
-                                        var hierarchyPath = $"{child.transform.GetHierarchyPath(_target.transform)}";
-                                        AddBindData(fieldName, com, hierarchyPath);
-                                        break;
-                                    }
+                                    tempFieldBinds.Add(fieldName,
+                                        new BindData(fieldName, child.gameObject, false, hierarchyPath));
                                 }
+
+                                break;
+                                // AddBindData(fieldName, child.gameObject, hierarchyPath);
+                            }
+
+                            var com = child.GetComponent(typeName);
+                            if (com == null)
+                            {
+                                errorCount++;
+                                if (errorCount == possibleTypes.Count)
+                                    Debug.LogError($"{child.name} 上不存在 {componentTypeName} 组件");
+                            }
+                            else
+                            {
+                                var hierarchyPath = child.transform.GetHierarchyPath(_target.transform);
+                                if (tempFieldBinds.ContainsKey(fieldName))
+                                {
+                                    errorString += $"{child.name} 存在重复的字段名 {fieldName}: [{hierarchyPath}]\n";
+                                }
+                                else
+                                {
+                                    tempFieldBinds.Add(fieldName, new BindData(fieldName, com, false, hierarchyPath));
+                                }
+
+                                // AddBindData(fieldName, com, hierarchyPath);
+                                break; // 从众多可能的类型中找到一个可行的之后就不再需要继续查找了
                             }
                         }
                     }
                 }
             }
 
-            SyncBindComs();
+            if (!string.IsNullOrEmpty(errorString))
+            {
+                throw new Exception(errorString);
+            }
+
+            SerializeBindData(tempFieldBinds.Values);
+            SerializeBindMap();
         }
 
+        private void DrawSettingReference()
+        {
+            EditorGUILayout.ObjectField("Setting", _setting, typeof(AutoBindGlobalSetting), false);
+        }
+        
         /// <summary>
         /// 绘制辅助器选择框
         /// </summary>
@@ -469,17 +499,18 @@ namespace ComponentBind.Editor
             int needDeleteIndex = -1;
 
             EditorGUILayout.BeginVertical();
-            SerializedProperty property;
 
             for (int i = 0; i < _bindData.arraySize; i++)
             {
                 EditorGUILayout.BeginHorizontal();
                 EditorGUILayout.LabelField($"[{i}]", GUILayout.Width(25));
-                property = _bindData.GetArrayElementAtIndex(i).FindPropertyRelative("Name");
-                property.stringValue = EditorGUILayout.TextField(property.stringValue, GUILayout.Width(150));
-                property = _bindData.GetArrayElementAtIndex(i).FindPropertyRelative("BindCom");
-                property.objectReferenceValue =
-                    EditorGUILayout.ObjectField(property.objectReferenceValue, typeof(Component), true);
+                var bindDataProperty = _bindData.GetArrayElementAtIndex(i);
+
+                var nameProperty = bindDataProperty.FindPropertyRelative("name");
+                nameProperty.stringValue = EditorGUILayout.TextField(nameProperty.stringValue, GUILayout.Width(150));
+                var objProperty = bindDataProperty.FindPropertyRelative("bindCom");
+                objProperty.objectReferenceValue =
+                    EditorGUILayout.ObjectField(objProperty.objectReferenceValue, typeof(Component), true);
 
                 if (GUILayout.Button("X"))
                 {
@@ -494,12 +525,40 @@ namespace ComponentBind.Editor
             if (needDeleteIndex != -1)
             {
                 _bindData.DeleteArrayElementAtIndex(needDeleteIndex);
-                SyncBindComs();
+                SerializeBindMap();
             }
 
             EditorGUILayout.EndVertical();
         }
 
+        private void SerializeBindData(IEnumerable<BindData> bindData)
+        {
+            _bindData.ClearArray();
+            foreach (var data in bindData)
+            {
+                if (data.isList && data.listElements is { Length: > 0 })
+                {
+                    for (var i = 0; i < data.listElements.Length; i++)
+                    {
+                        var newData = new BindData($"{data.name}_{i}", data.listElements[i], true, data.path);
+                        AddBindData(newData);
+                    }
+                }
+                else
+                    AddBindData(data);
+            }
+        }
+
+        private void AddBindData(BindData data)
+        {
+            int index = _bindData.arraySize;
+            _bindData.InsertArrayElementAtIndex(index);
+            var property = _bindData.GetArrayElementAtIndex(index);
+            property.FindPropertyRelative("name").stringValue = Regex.Replace(data.name, @"\s", string.Empty);
+            property.FindPropertyRelative("bindCom").objectReferenceValue = data.bindCom;
+            property.FindPropertyRelative("isList").boolValue = data.isList;
+            property.FindPropertyRelative("path").stringValue = data.path;
+        }
 
         /// <summary>
         /// 添加绑定数据
@@ -509,24 +568,30 @@ namespace ComponentBind.Editor
             int index = _bindData.arraySize;
             _bindData.InsertArrayElementAtIndex(index);
             SerializedProperty element = _bindData.GetArrayElementAtIndex(index);
-            element.FindPropertyRelative("Name").stringValue = Regex.Replace(name, @"\s", string.Empty);
-            element.FindPropertyRelative("BindCom").objectReferenceValue = bindCom;
-            element.FindPropertyRelative("IsList").boolValue = isList;
-            element.FindPropertyRelative("Path").stringValue = path;
+            element.FindPropertyRelative("name").stringValue = Regex.Replace(name, @"\s", string.Empty);
+            element.FindPropertyRelative("bindCom").objectReferenceValue = bindCom;
+            element.FindPropertyRelative("isList").boolValue = isList;
+            element.FindPropertyRelative("path").stringValue = path;
         }
 
-        /// <summary>
-        /// 同步绑定数据
-        /// </summary>
-        private void SyncBindComs()
+        private void SerializeBindMap()
         {
-            _bindComponents.ClearArray();
-
+            _target.BindMap.Clear();
+            var list = _bindMap.FindPropertyRelative("list");
+            list.ClearArray();
             for (int i = 0; i < _bindData.arraySize; i++)
             {
-                SerializedProperty property = _bindData.GetArrayElementAtIndex(i).FindPropertyRelative("BindCom");
-                _bindComponents.InsertArrayElementAtIndex(i);
-                _bindComponents.GetArrayElementAtIndex(i).objectReferenceValue = property.objectReferenceValue;
+                var bindDataProperty = _bindData.GetArrayElementAtIndex(i);
+                SerializedProperty property = bindDataProperty.FindPropertyRelative("bindCom");
+                var nameProperty = bindDataProperty.FindPropertyRelative("name");
+                // var localID = GetLocalIdentifierInFile(property.objectReferenceValue);
+                // var localID = Animator.StringToHash(nameProperty.stringValue);
+                var localID = nameProperty.stringValue;
+                var index = list.arraySize++;
+                // list.InsertArrayElementAtIndex(i);
+                var element = list.GetArrayElementAtIndex(index);
+                element.FindPropertyRelative("Key").stringValue = localID;
+                element.FindPropertyRelative("Value").objectReferenceValue = property.objectReferenceValue;
             }
         }
 
@@ -683,17 +748,23 @@ namespace ComponentBind.Editor
             return null;
         }
 
+        public static long GetLocalIdentifierInFile(Object obj)
+        {
+            PropertyInfo inspectorModeInfo =
+                typeof(SerializedObject).GetProperty("inspectorMode", BindingFlags.NonPublic | BindingFlags.Instance);
+            SerializedObject serializedObject = new SerializedObject(obj);
+            inspectorModeInfo.SetValue(serializedObject, InspectorMode.Debug, null);
+            SerializedProperty localIdProp = serializedObject.FindProperty("m_LocalIdentfierInFile");
+            return localIdProp.longValue;
+        }
 
-        /// <summary>
-        /// 生成自动绑定代码
-        /// </summary>
         private void GenAutoBindCode()
         {
             GameObject go = _target.gameObject;
 
             string className = !string.IsNullOrEmpty(_target.ClassName) ? _target.ClassName : go.name;
             string codePath = !string.IsNullOrEmpty(_target.CodePath) ? _target.CodePath : _setting.CodePath;
-            string assetPath = $"Assets/{codePath}/{className}.BindComponents.cs";
+            string assetPath = $"Assets/{codePath}/{className}.BindComponents.g.cs";
             codePath = Path.Combine(Application.dataPath, codePath);
 
             if (!Directory.Exists(codePath))
@@ -701,7 +772,7 @@ namespace ComponentBind.Editor
                 Debug.LogError($"{go.name}的代码保存路径{codePath}无效");
             }
 
-            var path = $"{codePath}/{className}.BindComponents.cs";
+            var path = $"{codePath}/{className}.BindComponents.g.cs";
             Debug.Log($"codePath : {path}");
             using (StreamWriter sw = new StreamWriter(path))
             {
@@ -720,8 +791,8 @@ namespace ComponentBind.Editor
                 //sw.WriteLine("using UnityEngine.UI;");
                 sw.WriteLine("");
 
-
-                if (!string.IsNullOrEmpty(_target.RootNamespace))
+                var hasNamespace = !string.IsNullOrEmpty(_target.RootNamespace);
+                if (hasNamespace)
                 {
                     //命名空间
                     sw.WriteLine("namespace " + _target.RootNamespace);
@@ -729,12 +800,13 @@ namespace ComponentBind.Editor
                     sw.WriteLine("");
                 }
 
+                var namespaceIndent = hasNamespace ? "\t" : "";
                 //类名
-                sw.WriteLine($"\tpublic partial class {className}");
-                sw.WriteLine("\t{");
+                sw.WriteLine($"{namespaceIndent}public partial class {className}");
+                sw.WriteLine($"{namespaceIndent}{{");
                 sw.WriteLine("");
 
-                List<string> definedList = new();
+                Dictionary<Object, string> objectMap = _target.BindMap.ToDictionary(pair => pair.Value, pair => pair.Key);
                 Dictionary<string, List<int>> compListDict = new();
                 //组件字段
                 for (var i = 0; i < _target.bindData.Count; i++)
@@ -742,36 +814,41 @@ namespace ComponentBind.Editor
                     var data = _target.bindData[i];
                     if (!data.isList)
                     {
-                        sw.WriteLine($"\t\t/// <summary>");
-                        sw.WriteLine($"\t\t/// {data.path}");
-                        sw.WriteLine($"\t\t/// </summary>");
-                        sw.WriteLine($"\t\tprivate {data.bindCom.GetType().FullName} _{data.name};");
+                        sw.WriteLine($"{namespaceIndent}\t/// <summary>");
+                        sw.WriteLine($"{namespaceIndent}\t/// {data.path}");
+                        sw.WriteLine($"{namespaceIndent}\t/// </summary>");
+                        sw.WriteLine($"{namespaceIndent}\tprivate {data.bindCom.GetType().FullName} _{data.name};");
                     }
                     else
                     {
-                        if (!compListDict.ContainsKey(data.name))
+                        var splitIdx = data.name.LastIndexOf('_');
+                        var listName = splitIdx > 0 ? data.name.Substring(0, splitIdx) : data.name;
+                        if (!compListDict.ContainsKey(listName))
                         {
-                            sw.WriteLine($"\t\t/// <summary>");
-                            sw.WriteLine($"\t\t/// {data.path}");
-                            sw.WriteLine($"\t\t/// </summary>");
+                            sw.WriteLine($"{namespaceIndent}\t/// <summary>");
+                            sw.WriteLine($"{namespaceIndent}\t/// {data.path}");
+                            sw.WriteLine($"{namespaceIndent}\t/// </summary>");
                             sw.WriteLine(
-                                $"\t\tprivate System.Collections.Generic.List<{data.bindCom.GetType().FullName}> _{data.name};");
-                            compListDict.Add(data.name, new List<int> { i });
+                                $"{namespaceIndent}\tprivate System.Collections.Generic.List<{data.bindCom.GetType().FullName}> _{listName};");
+                            compListDict.Add(listName, new List<int> { i });
                         }
                         else
                         {
-                            compListDict[data.name].Add(i);
+                            compListDict[listName].Add(i);
                         }
                     }
                 }
 
                 sw.WriteLine("");
 
-                sw.WriteLine("\t\tprotected override void BindComponents(GameObject go)");
-                sw.WriteLine("\t\t{");
+                var overrideKeyword = _setting.AutoInitialize ? "override " : "";
+
+                sw.WriteLine($"{namespaceIndent}\tprotected {overrideKeyword}void BindComponents(GameObject go)");
+                sw.WriteLine($"{namespaceIndent}\t{{");
 
                 //获取autoBindTool上的Component
-                sw.WriteLine($"\t\t\tComponentAutoBindTool autoBindTool = go.GetComponent<ComponentAutoBindTool>();");
+                sw.WriteLine(
+                    $"{namespaceIndent}\t\tComponentAutoBindTool autoBindTool = go.GetComponent<ComponentAutoBindTool>();");
                 sw.WriteLine("");
 
                 //根据索引获取
@@ -782,34 +859,37 @@ namespace ComponentBind.Editor
 
                     if (data.isList) continue;
 
+                    var localID = objectMap[data.bindCom];
                     string filedName = $"_{data.name}";
                     sw.WriteLine(
-                        $"\t\t\t{filedName} = autoBindTool.GetBindComponent<{data.bindCom.GetType().FullName}>({i});");
+                        $"{namespaceIndent}\t\t{filedName} = autoBindTool.GetBindComponent<{data.bindCom.GetType().FullName}>(\"{localID}\");");
                 }
 
                 // 获取List
 
-                foreach (var pair in compListDict)
+                foreach (var (listName, members) in compListDict)
                 {
-                    BindData data = _target.bindData[pair.Value[0]];
-                    string fieldName = $"_{pair.Key}";
+                    BindData data = _target.bindData[members[0]];
+                    string fieldName = $"_{listName}";
                     sw.WriteLine(
-                        $"\t\t\t{fieldName} = new System.Collections.Generic.List<{data.bindCom.GetType().FullName}>");
-                    sw.WriteLine("\t\t\t{");
-                    foreach (var i in pair.Value)
+                        $"{namespaceIndent}\t\t{fieldName} = new System.Collections.Generic.List<{data.bindCom.GetType().FullName}>");
+                    sw.WriteLine($"{namespaceIndent}\t\t{{");
+
+                    foreach (var i in members)
                     {
                         data = _target.bindData[i];
-                        sw.WriteLine($"\t\t\t\tautoBindTool.GetBindComponent<{data.bindCom.GetType().FullName}>({i}),");
+                        var localID = objectMap[data.bindCom];
+                        sw.WriteLine($"{namespaceIndent}\t\t\tautoBindTool.GetBindComponent<{data.bindCom.GetType().FullName}>(\"{localID}\"),");
                     }
 
-                    sw.WriteLine("\t\t\t};");
+                    sw.WriteLine($"{namespaceIndent}\t\t}};");
                 }
 
-                sw.WriteLine("\t\t}");
+                sw.WriteLine($"{namespaceIndent}\t}}");
 
-                sw.WriteLine("\t}");
+                sw.WriteLine($"{namespaceIndent}}}");
 
-                if (!string.IsNullOrEmpty(_target.RootNamespace))
+                if (hasNamespace)
                 {
                     sw.WriteLine("}");
                 }

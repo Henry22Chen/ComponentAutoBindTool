@@ -12,8 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 089caf30d869f954eb91eb065677f71c, type: 3}
   m_Name: AutoBindGlobalSetting
   m_EditorClassIdentifier: 
-  codePath: 
-  rootNamespace: 
+  codePath: Example\Scripts
+  rootNamespace: ComponentBindExample
   ruleHelperName: ComponentBind.DefaultAutoBindRuleHelper
-  searchAssemblies: []
-  autoInitialize: 0
+  searchAssemblies:
+  - {fileID: 5897886265953266890, guid: a80afacec315a8649afd1c26a6ea4971, type: 3}
+  - {fileID: 5897886265953266890, guid: 0171441305469f6469ff955831ec4a77, type: 3}
+  autoInitialize: 1

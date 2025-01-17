@@ -11,6 +11,7 @@ namespace ComponentBind.Editor
         private SerializedProperty _codePath;
         private SerializedProperty _ruleHelperName;
         private SerializedProperty _searchAssemblies;
+        private SerializedProperty _autoInitialize;
 
         private string[] _helperTypeNames;
         private int _helperTypeNameIndex;
@@ -21,6 +22,7 @@ namespace ComponentBind.Editor
             _codePath = serializedObject.FindProperty("codePath");
             _ruleHelperName = serializedObject.FindProperty("ruleHelperName");
             _searchAssemblies = serializedObject.FindProperty("searchAssemblies");
+            _autoInitialize = serializedObject.FindProperty("autoInitialize");
 
             _helperTypeNames = ComponentAutoBindToolInspector.GetTypeNames(typeof(IAutoBindRuleHelper));
 
@@ -50,7 +52,9 @@ namespace ComponentBind.Editor
 
             _helperTypeNameIndex = EditorGUILayout.Popup("AutoBindRuleHelper", _helperTypeNameIndex, _helperTypeNames);
             _ruleHelperName.stringValue = _helperTypeNames[_helperTypeNameIndex];
-
+            var toggleContent = new GUIContent("自动初始化", "是否在生成的 BindComponents 方法前添加 override 关键字");
+            _autoInitialize.boolValue = EditorGUILayout.ToggleLeft(toggleContent, _autoInitialize.boolValue);
+            
             EditorGUILayout.PropertyField(_searchAssemblies, true);
 
             serializedObject.ApplyModifiedProperties();
