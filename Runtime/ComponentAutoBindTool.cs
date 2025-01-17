@@ -68,6 +68,8 @@ namespace ComponentBind
             public Object bindCom;
             public string path;
             public bool isList;
+            [NonSerialized]
+            public Object[] listElements;
         }
 
         public List<BindData> bindData = new List<BindData>();
@@ -100,26 +102,19 @@ namespace ComponentBind
 #endif
 
         [SerializeField]
-        public List<Object> bindComponents = new();
+        private GenericDictionary<string, Object> bindMap = new();
 
+        public IDictionary<string, Object> BindMap => bindMap;
 
-        public T GetBindComponent<T>(int index) where T : Object
+        public T GetBindComponent<T>(string fieldKey) where T : Object
         {
-            if (index >= bindComponents.Count)
+            if (bindMap.TryGetValue(fieldKey, out var bindCom))
             {
-                Debug.LogError("索引无效");
-                return null;
+                return bindCom as T;
             }
 
-            var bindCom = bindComponents[index] as T;
-
-            if (bindCom == null)
-            {
-                Debug.LogError("类型无效");
-                return null;
-            }
-
-            return bindCom;
+            Debug.LogError($"fieldKey: {fieldKey} 无效");
+            return null;
         }
     }
 }

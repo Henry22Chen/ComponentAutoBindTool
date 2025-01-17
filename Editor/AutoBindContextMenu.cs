@@ -11,9 +11,48 @@ namespace ComponentBind.Editor
 {
     public class AutoBindContextMenu
     {
-        private static IAutoBindRuleHelper _ruleHelper;
+        private static IAutoBindRuleHelper _ruleHelper = null;
 
-        public static IAutoBindRuleHelper RuleHelper { get; private set; }
+        public static IAutoBindRuleHelper RuleHelper
+        {
+            get
+            {
+                if (_ruleHelper == null)
+                {
+                    Debug.Log("Load Settings");
+                    string[] paths = AssetDatabase.FindAssets("t:AutoBindGlobalSetting");
+                    if (paths.Length == 0)
+                    {
+                        Debug.LogError(
+                            "不存在 AutoBindGlobalSetting.asset，通过菜单 Tools/UI Bind/Create AutoBindGlobalSetting 创建");
+                        return null;
+                    }
+
+                    var existPath = paths.Select(AssetDatabase.GUIDToAssetPath)
+                        .FirstOrDefault(p => p.StartsWith("Assets"));
+                    if (paths.Length > 2 && existPath != default)
+                    {
+                        Debug.LogError("Assets 目录下 AutoBindGlobalSetting.asset 数量大于 1");
+                        return null;
+                    }
+
+                    string path = existPath ?? AssetDatabase.GUIDToAssetPath(paths[0]);
+                    var setting = AssetDatabase.LoadAssetAtPath<AutoBindGlobalSetting>(path);
+
+                    _ruleHelper =
+                        (IAutoBindRuleHelper)ComponentAutoBindToolInspector
+                            .CreateHelperInstance(setting.RuleHelperName);
+
+                    var assemblies = setting.SearchAssemblies
+                        .Where(t => t != null)
+                        .Select(t => t.name);
+                    _ruleHelper.Initialize(assemblies);
+                }
+
+                return _ruleHelper;
+            }
+            private set { _ruleHelper = value; }
+        }
 
         public static Dictionary<Type, string> NamePrefixDict { get; private set; }
 
@@ -21,34 +60,37 @@ namespace ComponentBind.Editor
         {
             prefix = default;
 
+            // if (RuleHelper == null)
+            // {
+            //     Debug.Log("Load Settings");
+            //     string[] paths = AssetDatabase.FindAssets("t:AutoBindGlobalSetting");
+            //     if (paths.Length == 0)
+            //     {
+            //         Debug.LogError("不存在 AutoBindGlobalSetting.asset，通过菜单 Tools/UI Bind/Create AutoBindGlobalSetting 创建");
+            //         return false;
+            //     }
+            //
+            //     var existPath = paths.Select(AssetDatabase.GUIDToAssetPath).FirstOrDefault(p => p.StartsWith("Assets"));
+            //     if (paths.Length > 2 && existPath != default)
+            //     {
+            //         Debug.LogError("Assets 目录下 AutoBindGlobalSetting.asset 数量大于 1");
+            //         return false;
+            //     }
+            //
+            //     string path = existPath ?? AssetDatabase.GUIDToAssetPath(paths[0]);
+            //     var setting = AssetDatabase.LoadAssetAtPath<AutoBindGlobalSetting>(path);
+            //
+            //     RuleHelper =
+            //         (IAutoBindRuleHelper)ComponentAutoBindToolInspector.CreateHelperInstance(setting.RuleHelperName);
+            //
+            //     var assemblies = setting.SearchAssemblies
+            //         .Where(t => t != null)
+            //         .Select(t => t.name);
+            //     RuleHelper.Initialize(assemblies);
+            // }
+
             if (RuleHelper == null)
-            {
-                Debug.Log("Load Settings");
-                string[] paths = AssetDatabase.FindAssets("t:AutoBindGlobalSetting");
-                if (paths.Length == 0)
-                {
-                    Debug.LogError("不存在 AutoBindGlobalSetting.asset，通过菜单 Tools/UI Bind/Create AutoBindGlobalSetting 创建");
-                    return false;
-                }
-
-                var existPath = paths.Select(AssetDatabase.GUIDToAssetPath).FirstOrDefault(p => p.StartsWith("Assets"));
-                if (paths.Length > 2 && existPath != default)
-                {
-                    Debug.LogError("Assets 目录下 AutoBindGlobalSetting.asset 数量大于 1");
-                    return false;
-                }
-
-                string path = existPath ?? AssetDatabase.GUIDToAssetPath(paths[0]);
-                var setting = AssetDatabase.LoadAssetAtPath<AutoBindGlobalSetting>(path);
-
-                RuleHelper =
-                    (IAutoBindRuleHelper)ComponentAutoBindToolInspector.CreateHelperInstance(setting.RuleHelperName);
-
-                var assemblies = setting.SearchAssemblies
-                    .Where(t => t != null)
-                    .Select(t => t.name);
-                RuleHelper.Initialize(assemblies);
-            }
+                return false;
 
             if (NamePrefixDict == null)
             {
@@ -68,13 +110,19 @@ namespace ComponentBind.Editor
             type ??= target.GetType();
             if (TryGetPrefix(type, out var prefix))
             {
+                var bindSymbol = RuleHelper.ValidSymbol;
                 var originName = target.name;
                 var nameParts = originName.Split('_');
                 if (nameParts.Length <= 1 || !nameParts.Any(p => p.Equals(prefix, StringComparison.OrdinalIgnoreCase)))
                 {
+                    if (originName.StartsWith(bindSymbol))
+                    {
+                        originName = originName[1..];
+                    }
+
                     Undo.RecordObject(target, $"auto_bind_{target.name}_{target.GetInstanceID()}");
                     //Undo.RegisterCompleteObjectUndo(target, $"auto_bind_{target.GetInstanceID()}");
-                    target.name = $"{prefix}_{originName}";
+                    target.name = $"{bindSymbol}{prefix}_{originName}";
                 }
             }
             else
@@ -200,7 +248,15 @@ namespace ComponentBind.Editor
                 var gameObject = component.gameObject;
                 if (TryGetPrefix(component.GetType(), out var prefix))
                 {
-                    gameObject.name = gameObject.name.Replace($"{prefix}_", "");
+                    var fullPrefix = $"{RuleHelper.ValidSymbol}{prefix}_";
+                    if (gameObject.name.StartsWith(fullPrefix))
+                    {
+                        gameObject.name = gameObject.name.Replace($"{prefix}_", "");
+                        if (!gameObject.name.Contains('_'))
+                            gameObject.name = gameObject.name[1..];
+                    }
+                    else
+                        gameObject.name = gameObject.name.Replace($"{prefix}_", "");
                 }
             }
         }
@@ -214,20 +270,29 @@ namespace ComponentBind.Editor
         [MenuItem("CONTEXT/Object/UIBind/Unbind GameObject", false, 20)]
         private static void UnBindGameObjectContextMenu(MenuCommand command)
         {
-            if (command.context is Component component)
+            if (command.context is Component component && RuleHelper != null)
             {
                 var gameObject = component.gameObject;
-                gameObject.name = gameObject.name.Replace($"Go_", "");
+                var prefix = $"{RuleHelper.ValidSymbol}Go_";
+                if (gameObject.name.StartsWith(prefix))
+                {
+                    gameObject.name = gameObject.name.Replace($"Go_", "");
+                    if (!gameObject.name.Contains('_'))
+                        gameObject.name = gameObject.name[1..];
+                }
+                else
+                    gameObject.name = gameObject.name.Replace($"Go_", "");
             }
         }
 
         [MenuItem("CONTEXT/Object/UIBind/Unbind GameObject", true, 20)]
         private static bool UnBindGameObjectContextMenuValidate(MenuCommand command)
         {
-            if (command.context is Component component)
+            if (command.context is Component component && RuleHelper != null)
             {
                 var gameObject = component.gameObject;
-                return gameObject.name.Contains($"Go_");
+                return gameObject.name.StartsWith(RuleHelper.ValidSymbol) &&
+                       gameObject.name.Contains($"Go_");
             }
 
             return false;
@@ -239,7 +304,8 @@ namespace ComponentBind.Editor
             {
                 if (TryGetPrefix(component.GetType(), out var prefix))
                 {
-                    return component.gameObject.name.Contains($"{prefix}_");
+                    return component.gameObject.name.StartsWith(RuleHelper.ValidSymbol) &&
+                           component.gameObject.name.Contains($"{prefix}_");
                 }
             }
 

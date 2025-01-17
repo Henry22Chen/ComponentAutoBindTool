@@ -16,3 +16,4 @@ MonoBehaviour:
   rootNamespace: 
   ruleHelperName: ComponentBind.DefaultAutoBindRuleHelper
   searchAssemblies: []
+  autoInitialize: 0

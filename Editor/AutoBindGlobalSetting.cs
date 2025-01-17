@@ -22,6 +22,9 @@ namespace ComponentBind.Editor
 
         [SerializeField]
         private AssemblyDefinitionAsset[] searchAssemblies;
+
+        [SerializeField, Tooltip("是否在生成的 BindComponents 方法前添加 override 关键字")]
+        private bool autoInitialize = true;
         
         public string CodePath => codePath;
 
@@ -31,6 +34,8 @@ namespace ComponentBind.Editor
 
         public AssemblyDefinitionAsset[] SearchAssemblies => searchAssemblies;
 
+        public bool AutoInitialize => autoInitialize;
+        
         [MenuItem("Tools/UI Bind/Create AutoBindGlobalSetting")]
         private static void CreateAutoBindGlobalSetting()
         {
