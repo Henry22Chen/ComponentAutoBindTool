@@ -1,0 +1,16 @@
+{
+    "name": "ComponentBindExample",
+    "rootNamespace": "ComponentBindExample",
+    "references": [
+        "GUID:a80afacec315a8649afd1c26a6ea4971"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
