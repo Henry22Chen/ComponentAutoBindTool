@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 089caf30d869f954eb91eb065677f71c, type: 3}
   m_Name: AutoBindGlobalSetting
   m_EditorClassIdentifier: 
-  codePath: Example\Scripts
+  codePath: Samples\ComponentAutoBindTool\1.0.0\Basic Example\Scripts
   rootNamespace: ComponentBindExample
   ruleHelperName: ComponentBind.DefaultAutoBindRuleHelper
   searchAssemblies:
