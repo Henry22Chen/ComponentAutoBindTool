@@ -1,6 +1,6 @@
 {
   "name": "com.henrychen.component-bind-tool",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "displayName": "ComponentAutoBindTool",
   "description": "Collect UI components by naming rules and source code generation",
   "unity": "2021.3",
