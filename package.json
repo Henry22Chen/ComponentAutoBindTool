@@ -1,0 +1,29 @@
+{
+  "name": "com.henrychen.component-bind-tool",
+  "version": "1.0.0",
+  "displayName": "ComponentAutoBindTool",
+  "description": "Collect UI components by naming rules and source code generation",
+  "unity": "2021.3",
+  "keywords": [
+    "UGUI",
+    "UI"
+  ],
+  "documentationUrl": "https://github.com/Henry22Chen/ComponentAutoBindTool",
+  "category": "UI",
+  "license": "MIT",
+  "licenseUrl": "https://github.com/Henry22Chen/ComponentAutoBindTool/blob/master/LICENSE",
+  "author": {
+    "name": "Henry Chen",
+    "url": "https://github.com/Henry22Chen/ComponentAutoBindTool.git"
+  },
+  "gitDependencies": {
+    "com.upscalebaby.generic-serializable-dictionary": "https://github.com/upscalebaby/generic-serializable-dictionary.git#1.0.2"
+  },
+  "samples": [
+    {
+      "displayName": "Basic Example",
+      "description": "An example of how to use ComponentAutoBindTool",
+      "path": "Samples~/Basic"
+    }
+  ]
+}
